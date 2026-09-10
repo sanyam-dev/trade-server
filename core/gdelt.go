@@ -76,6 +76,7 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 
 	var body []byte
 	var status int
+	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt+1) * 5 * time.Second)
@@ -93,15 +94,19 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		c.lastRequest = time.Now()
 		resp, err := c.HTTPClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("gdelt GET: %w", err)
+			lastErr = fmt.Errorf("gdelt GET: %w", err)
+			continue // TLS/timeouts are common; soft-retry then soft-fail upstream
 		}
 		body, err = io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("gdelt read: %w", err)
+			lastErr = fmt.Errorf("gdelt read: %w", err)
+			continue
 		}
 		status = resp.StatusCode
+		lastErr = nil
 		if status == http.StatusTooManyRequests || looksLikeGDELTRateLimit(body) {
+			lastErr = fmt.Errorf("gdelt rate limited")
 			continue
 		}
 		if status != http.StatusOK {
@@ -109,8 +114,11 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		}
 		break
 	}
-	if status == http.StatusTooManyRequests || looksLikeGDELTRateLimit(body) {
-		return nil, fmt.Errorf("gdelt rate limited after retries — wait and re-run update")
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("gdelt HTTP %d after retries", status)
 	}
 
 	var payload struct {

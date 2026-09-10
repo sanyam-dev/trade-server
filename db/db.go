@@ -455,6 +455,38 @@ func (m *MarketDB) LastNewsDate() (time.Time, error) {
 	return time.ParseInLocation("2006-01-02", s.String, time.UTC)
 }
 
+// MissingNewsDates returns SPY trading days in [from, to] that have no market_news rows.
+func (m *MarketDB) MissingNewsDates(from, to time.Time) ([]time.Time, error) {
+	rows, err := m.db.Query(`
+SELECT d.date
+FROM ohlcv_daily d
+LEFT JOIN market_news n ON n.as_of_date = d.date
+WHERE d.symbol = 'SPY'
+  AND d.date >= ? AND d.date <= ?
+GROUP BY d.date
+HAVING COUNT(n.id) = 0
+ORDER BY d.date ASC
+`, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []time.Time
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		t, err := time.ParseInLocation("2006-01-02", s, time.UTC)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // Stats returns a human-readable summary of the empty/filled DB.
 func (m *MarketDB) Stats() (string, error) {
 	var symbols int
