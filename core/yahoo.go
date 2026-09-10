@@ -15,7 +15,6 @@ import (
 const yahooChartBaseURL = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
 // YahooClient fetches OHLCV from Yahoo Finance chart API (no key).
-// Sole OHLCV ingest path for RL harness training data.
 type YahooClient struct {
 	HTTPClient *http.Client
 }
@@ -27,15 +26,7 @@ func NewYahooClient() *YahooClient {
 	}
 }
 
-// FetchMaxHistory pulls the longest available series for interval (1d / 1wk / 1mo).
-func (c *YahooClient) FetchMaxHistory(symbol string, interval Interval) ([]OHLCVBar, error) {
-	period1 := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-	period2 := time.Now().UTC()
-	return c.FetchRange(symbol, interval, period1, period2)
-}
-
 // FetchRange pulls OHLCV bars for [from, to] (inclusive calendar bounds in UTC).
-// Prefer this for daily refresh so we do not re-download full listing history.
 func (c *YahooClient) FetchRange(symbol string, interval Interval, from, to time.Time) ([]OHLCVBar, error) {
 	yInterval, err := yahooInterval(interval)
 	if err != nil {

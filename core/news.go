@@ -16,3 +16,18 @@ type MarketNewsArticle struct {
 	Related   string
 	FetchedAt time.Time
 }
+
+// USEastern returns America/New_York, or a fixed EST fallback.
+func USEastern() *time.Location {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.FixedZone("EST", -5*3600)
+	}
+	return ny
+}
+
+// AsOfDateNY maps an instant to the US/Eastern calendar day (UTC midnight of that date).
+func AsOfDateNY(t time.Time) time.Time {
+	local := t.In(USEastern())
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+}

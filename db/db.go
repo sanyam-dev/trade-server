@@ -332,6 +332,47 @@ func (m *MarketDB) CountNews() (int, error) {
 	return n, err
 }
 
+// TrimToMonths deletes OHLCV + news rows older than (today UTC − months).
+// Keeps the training window tight for buy/sell/hold agents. Returns cutoff date string.
+func (m *MarketDB) TrimToMonths(months int) (cutoff string, deleted map[string]int64, err error) {
+	if months <= 0 {
+		months = 3
+	}
+	now := time.Now().UTC()
+	cut := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, -months, 0)
+	cutoff = cut.Format("2006-01-02")
+	deleted = map[string]int64{}
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	tables := []string{"ohlcv_daily", "ohlcv_weekly", "ohlcv_monthly"}
+	for _, table := range tables {
+		res, err := tx.Exec(`DELETE FROM `+table+` WHERE date < ?`, cutoff)
+		if err != nil {
+			return "", nil, fmt.Errorf("trim %s: %w", table, err)
+		}
+		n, _ := res.RowsAffected()
+		deleted[table] = n
+	}
+	res, err := tx.Exec(`DELETE FROM market_news WHERE as_of_date < ?`, cutoff)
+	if err != nil {
+		return "", nil, fmt.Errorf("trim market_news: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	deleted["market_news"] = n
+
+	if err := tx.Commit(); err != nil {
+		return "", nil, err
+	}
+	// Reclaim disk after large deletes (best-effort).
+	_, _ = m.db.Exec(`VACUUM`)
+	return cutoff, deleted, nil
+}
+
 // MaxNewsID returns the highest Finnhub article id stored (0 if empty).
 func (m *MarketDB) MaxNewsID() (int64, error) {
 	var id sql.NullInt64
@@ -384,6 +425,36 @@ ORDER BY datetime DESC
 	return out, rows.Err()
 }
 
+// LastBarDate returns the newest bar date for symbol/interval, or zero time if empty.
+func (m *MarketDB) LastBarDate(symbol string, interval core.Interval) (time.Time, error) {
+	table, err := tableFor(interval)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var s sql.NullString
+	err = m.db.QueryRow(`SELECT MAX(date) FROM `+table+` WHERE symbol = ?`, symbol).Scan(&s)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !s.Valid || s.String == "" {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation("2006-01-02", s.String, time.UTC)
+}
+
+// LastNewsDate returns the newest market_news as_of_date, or zero time if empty.
+func (m *MarketDB) LastNewsDate() (time.Time, error) {
+	var s sql.NullString
+	err := m.db.QueryRow(`SELECT MAX(as_of_date) FROM market_news`).Scan(&s)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !s.Valid || s.String == "" {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation("2006-01-02", s.String, time.UTC)
+}
+
 // Stats returns a human-readable summary of the empty/filled DB.
 func (m *MarketDB) Stats() (string, error) {
 	var symbols int
@@ -406,9 +477,14 @@ func (m *MarketDB) Stats() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	lastNews, _ := m.LastNewsDate()
+	lastNewsStr := "none"
+	if !lastNews.IsZero() {
+		lastNewsStr = lastNews.Format("2006-01-02")
+	}
 	return fmt.Sprintf(
-		"db=%s symbols=%d ohlcv_daily=%d ohlcv_weekly=%d ohlcv_monthly=%d market_news=%d",
-		m.path, symbols, daily, weekly, monthly, news,
+		"db=%s symbols=%d ohlcv_daily=%d ohlcv_weekly=%d ohlcv_monthly=%d market_news=%d last_news=%s",
+		m.path, symbols, daily, weekly, monthly, news, lastNewsStr,
 	), nil
 }
 

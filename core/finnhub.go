@@ -27,17 +27,15 @@ func NewFinnhubClient(apiKey string) (*FinnhubClient, error) {
 	}
 	return &FinnhubClient{
 		APIKey:     apiKey,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		HTTPClient: &http.Client{Timeout: 45 * time.Second},
 	}, nil
 }
 
-// FetchMarketNews pulls general (or other) category market news.
-// minID 0 returns the latest batch; use last seen id to page newer items.
+// FetchMarketNews pulls general (or other) category market news (recent feed).
 func (c *FinnhubClient) FetchMarketNews(category string, minID int64) ([]MarketNewsArticle, error) {
 	if category == "" {
 		category = "general"
 	}
-
 	u, err := url.Parse(finnhubBaseURL + "/news")
 	if err != nil {
 		return nil, err
@@ -49,8 +47,30 @@ func (c *FinnhubClient) FetchMarketNews(category string, minID int64) ([]MarketN
 	}
 	q.Set("token", c.APIKey)
 	u.RawQuery = q.Encode()
+	return c.getNewsArticles(u.String(), "")
+}
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+// FetchCompanyNews pulls dated company/ETF news for symbol between from and to (inclusive YYYY-MM-DD).
+// Free plans typically allow about one year of company-news history.
+func (c *FinnhubClient) FetchCompanyNews(symbol string, from, to time.Time) ([]MarketNewsArticle, error) {
+	if symbol == "" {
+		return nil, fmt.Errorf("symbol required")
+	}
+	u, err := url.Parse(finnhubBaseURL + "/company-news")
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("symbol", symbol)
+	q.Set("from", from.UTC().Format("2006-01-02"))
+	q.Set("to", to.UTC().Format("2006-01-02"))
+	q.Set("token", c.APIKey)
+	u.RawQuery = q.Encode()
+	return c.getNewsArticles(u.String(), symbol)
+}
+
+func (c *FinnhubClient) getNewsArticles(rawURL, defaultRelated string) ([]MarketNewsArticle, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +79,7 @@ func (c *FinnhubClient) FetchMarketNews(category string, minID int64) ([]MarketN
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("finnhub GET /news: %w", err)
+		return nil, fmt.Errorf("finnhub GET: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
@@ -88,11 +108,6 @@ func (c *FinnhubClient) FetchMarketNews(category string, minID int64) ([]MarketN
 		return nil, fmt.Errorf("finnhub json: %w; body=%s", err, utils.Truncate(string(body), 200))
 	}
 
-	ny, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		ny = time.FixedZone("EST", -5*3600)
-	}
-
 	now := time.Now().UTC()
 	out := make([]MarketNewsArticle, 0, len(raw))
 	for _, a := range raw {
@@ -100,19 +115,25 @@ func (c *FinnhubClient) FetchMarketNews(category string, minID int64) ([]MarketN
 			continue
 		}
 		pub := time.Unix(a.Datetime, 0).UTC()
-		local := pub.In(ny)
-		asOf := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+		related := a.Related
+		if related == "" {
+			related = defaultRelated
+		}
+		cat := a.Category
+		if cat == "" && defaultRelated != "" {
+			cat = "company"
+		}
 		out = append(out, MarketNewsArticle{
 			ID:        a.ID,
-			Category:  a.Category,
+			Category:  cat,
 			Datetime:  pub,
-			AsOfDate:  asOf,
+			AsOfDate:  AsOfDateNY(pub),
 			Headline:  a.Headline,
 			Summary:   a.Summary,
 			Source:    a.Source,
 			URL:       a.URL,
 			Image:     a.Image,
-			Related:   a.Related,
+			Related:   related,
 			FetchedAt: now,
 		})
 	}

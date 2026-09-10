@@ -110,7 +110,7 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		break
 	}
 	if status == http.StatusTooManyRequests || looksLikeGDELTRateLimit(body) {
-		return nil, fmt.Errorf("gdelt rate limited after retries — wait and re-run ingest-gdelt")
+		return nil, fmt.Errorf("gdelt rate limited after retries — wait and re-run update")
 	}
 
 	var payload struct {
@@ -129,11 +129,6 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		return nil, fmt.Errorf("gdelt json: %w; body=%s", err, utils.Truncate(string(body), 240))
 	}
 
-	ny, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		ny = time.FixedZone("EST", -5*3600)
-	}
-
 	now := time.Now().UTC()
 	out := make([]MarketNewsArticle, 0, len(payload.Articles))
 	seen := make(map[int64]struct{}, len(payload.Articles))
@@ -150,8 +145,6 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		if err != nil {
 			continue
 		}
-		local := pub.In(ny)
-		asOf := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 		id := gdeltArticleID(link)
 		if _, ok := seen[id]; ok {
 			continue
@@ -159,14 +152,18 @@ func (c *GDELTClient) fetch(start, end string) ([]MarketNewsArticle, error) {
 		seen[id] = struct{}{}
 
 		related := strings.TrimSpace(strings.Join([]string{a.Language, a.SourceCountry}, "|"))
+		src := strings.TrimSpace(a.Domain)
+		if src == "" {
+			src = "gdelt"
+		}
 		out = append(out, MarketNewsArticle{
 			ID:        id,
 			Category:  "gdelt_market",
 			Datetime:  pub,
-			AsOfDate:  asOf,
+			AsOfDate:  AsOfDateNY(pub),
 			Headline:  title,
 			Summary:   "",
-			Source:    firstNonEmpty(a.Domain, "gdelt"),
+			Source:    src,
 			URL:       link,
 			Image:     a.SocialImage,
 			Related:   related,
@@ -218,13 +215,4 @@ func gdeltArticleID(articleURL string) int64 {
 		v = 1
 	}
 	return int64(v)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }

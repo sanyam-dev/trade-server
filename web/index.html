@@ -15,6 +15,8 @@
       src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"
       defer
     ></script>
+    <script src="/lib.js" defer></script>
+    <script src="/news.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -31,7 +33,6 @@
             </button>
             <span class="interval-badge" id="intervalBadge">DAILY</span>
             <span class="source-badge" id="sourceBadge" title="Data source">sample</span>
-            <span class="mode-badge" id="modeBadge" title="Data mode">playback</span>
           </div>
         </div>
 
@@ -60,6 +61,11 @@
             <button type="button" class="speed-btn is-active" data-speed="1">1x</button>
             <button type="button" class="speed-btn" data-speed="5">5x</button>
             <button type="button" class="speed-btn" data-speed="10">10x</button>
+          </div>
+          <div class="actions" role="group" aria-label="Agent actions">
+            <button type="button" class="ctrl action buy" data-action="buy">Buy</button>
+            <button type="button" class="ctrl action sell" data-action="sell">Sell</button>
+            <button type="button" class="ctrl action hold" data-action="hold">Hold</button>
           </div>
         </div>
       </header>
