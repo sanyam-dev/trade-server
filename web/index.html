@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>trade-server · market view</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script
+      src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"
+      defer
+    ></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand">trade-server</span>
+          <div class="symbol-row">
+            <button type="button" class="symbol-btn is-active" data-symbol="SPY" aria-pressed="true">
+              SPY
+            </button>
+            <button type="button" class="symbol-btn" data-symbol="DIA" aria-pressed="false">
+              DIA
+            </button>
+            <span class="interval-badge" id="intervalBadge">DAILY</span>
+            <span class="source-badge" id="sourceBadge" title="Data source">sample</span>
+            <span class="mode-badge" id="modeBadge" title="Data mode">playback</span>
+          </div>
+        </div>
+
+        <div class="session-clock" id="sessionClock" aria-live="polite">
+          <span class="clock-label">Session</span>
+          <span class="clock-date" id="clockDate">—</span>
+        </div>
+
+        <div class="ohlcv" id="ohlcvReadout" aria-live="polite">
+          <span class="ohlcv-origin" id="ohlcvOrigin" data-origin="tip">tip</span>
+          <div class="ohlcv-item"><span class="lbl">O</span><span data-field="open">—</span></div>
+          <div class="ohlcv-item"><span class="lbl">H</span><span data-field="high">—</span></div>
+          <div class="ohlcv-item"><span class="lbl">L</span><span data-field="low">—</span></div>
+          <div class="ohlcv-item"><span class="lbl">C</span><span data-field="close">—</span></div>
+          <div class="ohlcv-item"><span class="lbl">V</span><span data-field="volume">—</span></div>
+          <div class="ohlcv-item ohlcv-time"><span data-field="time">—</span></div>
+        </div>
+
+        <div class="controls" role="group" aria-label="Playback controls">
+          <button type="button" class="ctrl" id="btnPlay" title="Play">Play</button>
+          <button type="button" class="ctrl" id="btnPause" title="Pause" disabled>Pause</button>
+          <button type="button" class="ctrl" id="btnBack" title="Back one bar">Back</button>
+          <button type="button" class="ctrl" id="btnStep" title="Step one bar">Step</button>
+          <button type="button" class="ctrl" id="btnReset" title="Reset playback">Reset</button>
+          <div class="speed" role="group" aria-label="Playback speed">
+            <button type="button" class="speed-btn is-active" data-speed="1">1x</button>
+            <button type="button" class="speed-btn" data-speed="5">5x</button>
+            <button type="button" class="speed-btn" data-speed="10">10x</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="scrubber-bar">
+        <label class="scrubber-label" for="rangeScrubber">Time</label>
+        <div class="scrubber-track">
+          <input
+            type="range"
+            id="rangeScrubber"
+            class="scrubber"
+            min="0"
+            max="0"
+            value="0"
+            step="1"
+            aria-label="Playback position"
+          />
+          <div class="scrubber-tip" id="scrubberTip" hidden></div>
+        </div>
+        <span class="scrubber-pos" id="scrubberPos">—</span>
+      </div>
+
+      <main class="dashboard">
+        <section class="chart-shell">
+          <div id="chart" class="chart" role="img" aria-label="Candlestick chart"></div>
+          <div class="status-line" id="statusLine">Loading bars…</div>
+        </section>
+
+        <aside class="news-panel" aria-label="Market news for selected candle">
+          <div class="news-header">
+            <div class="news-title-block">
+              <span class="news-kicker">Market news</span>
+              <h2 class="news-date" id="newsDate">Select a candle</h2>
+            </div>
+            <span class="news-count" id="newsCount">—</span>
+          </div>
+          <p class="news-hint" id="newsHint">Click a candle to load headlines for that session day.</p>
+          <div class="news-list" id="newsList" role="list"></div>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>
