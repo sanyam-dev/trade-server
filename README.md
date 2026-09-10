@@ -8,7 +8,8 @@ Local index market simulator backend (Go). Module root is the parent `myServer` 
 |------|------|
 | `main.go` | Thin entry: CLI dispatch + HTTP listen |
 | `core/` | OHLCV types, Yahoo Finance client |
-| `db/` | SQLite schema, OpenMarketDB, UpsertBars / GetBars / Stats, `init-db` / `ingest-db` |
+| `db/` | SQLite schema, OpenMarketDB, UpsertBars / GetBars / Stats, `init-db` / `ingest-db` / `ingest-daily` |
+| `scripts/` | Cron-friendly wrappers (e.g. `ingest-daily.sh`) |
 | `web/` | Static UI (`index.html`, `app.js`, `styles.css`, `data/`) + HTTP/API/WS registration |
 | `utils/` | `.env` loading, Truncate |
 | `data/` | SQLite path `data/market.db` (relative to cwd) |
@@ -36,9 +37,38 @@ cd trade-server
 go run . init-db
 go run . ingest-db
 go run . ingest-news
+go run . ingest-daily
 ```
 
-`init-db` creates schema + seeds symbols (no API). `ingest-db` pulls **max listing history** from Yahoo Finance into SQLite (daily / weekly / monthly for SPY + DIA). `ingest-news` pulls Finnhub `category=general` into `market_news` (aligned by `as_of_date` in US/Eastern).
+`init-db` creates schema + seeds symbols (no API). `ingest-db` pulls **max listing history** from Yahoo Finance into SQLite (daily / weekly / monthly for SPY + DIA). `ingest-news` pulls Finnhub `category=general` into `market_news`. `ingest-gdelt` backfills English market headlines from the free GDELT DOC 2.0 API (≈ last 3 months, paced requests).
+
+**Daily refresh** (`ingest-daily`): ensures schema, upserts a **bounded** Yahoo window (not full max history: ~14d daily / ~90d weekly / ~120d monthly), Finnhub recent news, and GDELT for yesterday + today (US/Eastern). Safe to re-run (upserts). Requires `FINNHUB_API_KEY` in `.env`. GDELT is best-effort in this path (warnings on timeout/429; Yahoo + Finnhub still succeed).
+
+```bash
+go run . ingest-daily
+./scripts/ingest-daily.sh
+```
+
+```bash
+go run . ingest-gdelt
+go run . ingest-gdelt --from=2025-10-16 --to=2025-10-16
+```
+
+GDELT needs no API key. Be polite: the DOC API asks for ~1 request / 5 seconds (the client waits ≥6s between days).
+
+### Cron (weekdays after US close)
+
+Example: weekdays at 21:30 UTC (~after 16:00 ET close, allowing for late prints):
+
+```cron
+30 21 * * 1-5 cd /home/ashu/Projects/go/trade-server && ./scripts/ingest-daily.sh >> data/ingest-daily.log 2>&1
+```
+
+Or via Go directly:
+
+```cron
+30 21 * * 1-5 cd /home/ashu/Projects/go/trade-server && go run . ingest-daily >> data/ingest-daily.log 2>&1
+```
 
 ### Why Yahoo for training data
 

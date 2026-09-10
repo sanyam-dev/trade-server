@@ -313,22 +313,41 @@
     return state.allBars.slice(0, state.cursor);
   }
 
-  /** Keep tip near the right edge during play / live updates. */
+  /** @type {number|null} */
+  let followRaf = null;
+
+  /** Keep tip near the right edge so scrubber/playback stay aligned with the chart view. */
   function followTip(force) {
     if (!state.chart || state.cursor <= 0) return;
-    if (!force && !state.playing && !state.live) return;
-    try {
-      state.chart.timeScale().scrollToRealTime();
-    } catch (_) {
-      /* fallback below */
-    }
+    // Idle pan: don't fight the user unless scrubbing / playing / live / forced.
+    if (!force && !state.playing && !state.live && !state.scrubbing) return;
+
     const right = state.cursor - 0.5;
     const left = Math.max(-0.5, right - FOLLOW_WINDOW);
     try {
       state.chart.timeScale().setVisibleLogicalRange({ from: left, to: right + 3 });
     } catch (_) {
-      /* ignore */
+      try {
+        state.chart.timeScale().scrollToRealTime();
+      } catch (_) {
+        /* ignore */
+      }
     }
+  }
+
+  /**
+   * Apply followTip after Lightweight Charts finishes setData layout.
+   * A single sync call (or even one rAF) is often overwritten; double-rAF sticks.
+   */
+  function scheduleFollowTip(force) {
+    if (!force && !state.playing && !state.live && !state.scrubbing) return;
+    if (followRaf != null) cancelAnimationFrame(followRaf);
+    followRaf = requestAnimationFrame(() => {
+      followRaf = requestAnimationFrame(() => {
+        followRaf = null;
+        followTip(true);
+      });
+    });
   }
 
   function clearTipMarkers() {
@@ -399,8 +418,16 @@
     if (next === state.cursor && !opts.force) return;
     state.cursor = next;
     paintSeries();
-    if (opts.fit) state.chart.timeScale().fitContent();
-    else if (opts.follow) followTip(true);
+    if (opts.fit) {
+      try {
+        state.chart.timeScale().fitContent();
+      } catch (_) {
+        /* ignore */
+      }
+    } else {
+      // Scrub / step / back: re-sync viewport to tip after setData settles.
+      scheduleFollowTip(true);
+    }
     syncNewsFromTip();
   }
 
@@ -415,7 +442,8 @@
     state.candleSeries.update(toCandle(bar));
     state.volumeSeries.update(toVolume(bar));
     updateTipMarkers();
-    followTip(false);
+    // Playing → follow; idle Step also forces via scheduleFollowTip(true) in step().
+    scheduleFollowTip(false);
     if (!state.hovering) {
       updateReadout(bar, "tip");
     }
@@ -454,7 +482,7 @@
     el.play.classList.add("is-active");
     setStatus(`Playing @ ${state.speed}x`);
     updateControls();
-    followTip(true);
+    scheduleFollowTip(true);
     scheduleNext();
   }
 
@@ -471,7 +499,7 @@
   function step() {
     if (state.playing || state.live) return;
     if (advanceOne()) {
-      followTip(true);
+      scheduleFollowTip(true);
       setStatus("Stepped one bar");
     }
   }
@@ -658,7 +686,7 @@
     state.candleSeries.update(toCandle(bar));
     state.volumeSeries.update(toVolume(bar));
     updateTipMarkers();
-    followTip(true);
+    scheduleFollowTip(true);
     if (!state.hovering) updateReadout(bar, "tip");
     updateClock(bar);
     updateControls();
@@ -810,18 +838,27 @@
       const n = Number(el.scrubber.value) || 0;
       setCursor(n);
       updateScrubberUI(n);
+      // Force another follow in case setCursor early-returned (same value).
+      scheduleFollowTip(true);
     });
     el.scrubber.addEventListener("change", () => {
       state.scrubbing = false;
       const n = Number(el.scrubber.value) || 0;
-      setCursor(n);
+      setCursor(n, { force: true });
       updateScrubberUI(n);
+      scheduleFollowTip(true);
       const tip = barAtCursorIndex(n);
       setStatus(tip ? `Scrubbed to ${tip.time}` : `Scrubbed to ${n}`);
     });
     el.scrubber.addEventListener("pointerup", () => {
       state.scrubbing = false;
-      updateScrubberUI(state.cursor);
+      updateControls();
+      scheduleFollowTip(true);
+    });
+    el.scrubber.addEventListener("pointercancel", () => {
+      state.scrubbing = false;
+      updateControls();
+      scheduleFollowTip(true);
     });
 
     document.querySelectorAll(".speed-btn").forEach((btn) => {

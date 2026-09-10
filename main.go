@@ -29,7 +29,9 @@ func main() {
 	fmt.Println("static:", webDir)
 	fmt.Println("init local OHLCV db (no API): go run . init-db")
 	fmt.Println("pull Yahoo max-history into SQLite: go run . ingest-db")
+	fmt.Println("daily refresh (bounded Yahoo + news): go run . ingest-daily")
 	fmt.Println("pull Finnhub market news into SQLite: go run . ingest-news")
+	fmt.Println("pull GDELT market news into SQLite:  go run . ingest-gdelt --from=YYYY-MM-DD --to=YYYY-MM-DD")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

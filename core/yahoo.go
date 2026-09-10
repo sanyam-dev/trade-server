@@ -14,7 +14,7 @@ import (
 
 const yahooChartBaseURL = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
-// YahooClient fetches max-history OHLCV from Yahoo Finance chart API (no key).
+// YahooClient fetches OHLCV from Yahoo Finance chart API (no key).
 // Sole OHLCV ingest path for RL harness training data.
 type YahooClient struct {
 	HTTPClient *http.Client
@@ -29,14 +29,33 @@ func NewYahooClient() *YahooClient {
 
 // FetchMaxHistory pulls the longest available series for interval (1d / 1wk / 1mo).
 func (c *YahooClient) FetchMaxHistory(symbol string, interval Interval) ([]OHLCVBar, error) {
+	period1 := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	period2 := time.Now().UTC()
+	return c.FetchRange(symbol, interval, period1, period2)
+}
+
+// FetchRange pulls OHLCV bars for [from, to] (inclusive calendar bounds in UTC).
+// Prefer this for daily refresh so we do not re-download full listing history.
+func (c *YahooClient) FetchRange(symbol string, interval Interval, from, to time.Time) ([]OHLCVBar, error) {
 	yInterval, err := yahooInterval(interval)
 	if err != nil {
 		return nil, err
 	}
+	if to.Before(from) {
+		return nil, fmt.Errorf("yahoo range: to %s before from %s", to.Format("2006-01-02"), from.Format("2006-01-02"))
+	}
 
-	// SPY listing starts ~1993; request well before that for "max".
-	period1 := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
-	period2 := time.Now().UTC().Unix()
+	period1 := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC).Unix()
+	// period2 is exclusive on some Yahoo paths; use start of next day after `to`.
+	toDay := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	period2 := toDay.Add(24 * time.Hour).Unix()
+	now := time.Now().UTC().Unix()
+	if period2 > now {
+		period2 = now
+	}
+	if period2 <= period1 {
+		period2 = period1 + 1
+	}
 
 	u, err := url.Parse(yahooChartBaseURL + url.PathEscape(symbol))
 	if err != nil {
@@ -108,7 +127,7 @@ func (c *YahooClient) FetchMaxHistory(symbol string, interval Interval) ([]OHLCV
 		return nil, fmt.Errorf("yahoo length mismatch for %s", symbol)
 	}
 
-	now := time.Now().UTC()
+	fetchedAt := time.Now().UTC()
 	out := make([]OHLCVBar, 0, n)
 	for i := 0; i < n; i++ {
 		if quote.Open[i] == nil || quote.High[i] == nil || quote.Low[i] == nil || quote.Close[i] == nil {
@@ -129,7 +148,7 @@ func (c *YahooClient) FetchMaxHistory(symbol string, interval Interval) ([]OHLCV
 			Close:     *quote.Close[i],
 			Volume:    vol,
 			Source:    "yahoo",
-			FetchedAt: now,
+			FetchedAt: fetchedAt,
 		})
 	}
 	return out, nil
